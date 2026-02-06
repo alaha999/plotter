@@ -1,0 +1,100 @@
+######################
+## General Settings ##
+######################
+general:
+  debug_level: 0
+  print_info_table: 0
+  input_path_histograms: "dummy_data/"
+  output_path_plots: "output_plotter/"
+  experiment: "ATLAS"
+  extratext: "Internal"
+  energy: "13.6 TeV"
+  year: "Run 3"
+  lumi: "51.8"
+  pubstyle: True
+
+  output_subfolder: "test"
+  plot_ratio_significance: False
+
+##########################
+## General plot Settings##
+##########################
+plot_common: &common_plot_settings
+  root_file_folder: ""
+  logy: True
+  logx: False
+  ratio_logy: True
+  yrange: [0.05,100000]
+  ratio_ylabel: "Obs/Exp"
+  ratio_yrange: [0,2]
+  unc_fstyle: 1003
+  unc_fcolor: "ROOT.kGray"
+  extraTextOffset: 0.11
+  legend_position: [0.55,0.60,0.80,0.86]
+  legend_fontsize: 0.04
+  legend_column: 1
+  sortLegend: False
+  extra_text: []
+  density: False
+  plotdata: True
+  savefig: True
+  
+
+###########
+## plots ##
+###########
+variable:
+  - name: "dummyvar"
+    <<: *common_plot_settings
+    xlabel: "Dummy Histogram"
+    ylabel: "Events"
+    xrange: [0,200]
+    rebin: 10
+
+region:
+  - name: "base"
+    extra_text: ["dummy samples","base selection"]
+
+#############
+## Samples ##
+#############      
+samples:
+  - name: "signal"
+    file_path: "signal.root"
+    legend_name: "Signal"
+    color: "ROOT.kBlue-2"
+    fill: False
+    stack: False
+    isData: False
+
+  - name: "bkg1"
+    file_path: "bkg1.root"
+    legend_name: "Bkg1"
+    color: "ROOT.kRed-9"
+    fill: True
+    stack: True
+    isData: False
+
+  - name: "bkg2"
+    file_path: "bkg2.root"
+    legend_name: "Bkg2"
+    color: "ROOT.kGreen-9"
+    fill: True
+    stack: True
+    isData: False
+    
+  - name: "bkg3"
+    file_path: "bkg3.root"
+    legend_name: "Bkg3"
+    color: "ROOT.kMagenta-9"
+    fill: True
+    stack: True
+    isData: False
+
+  - name: "data"
+    file_path: "data.root"
+    legend_name: "Data"
+    color: "ROOT.kBlack"
+    fill: False
+    stack: False
+    isData: True
