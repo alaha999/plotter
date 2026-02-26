@@ -1,18 +1,84 @@
 import ROOT
 from array import array
+import math
 
-def SetOverflowBin(histo):
-    nbins = histo.GetNbinsX()
-    histo.SetBinContent(nbins, histo.GetBinContent(nbins) + histo.GetBinContent(nbins+1)); ## Overflow
-    histo.SetBinContent(1, histo.GetBinContent(1)+ histo.GetBinContent(0));                ## Underflow
+def merge_underflow_overflow_in_range(h, xmin=None, xmax=None):
+    """
+    Merge underflow and overflow into visible edge bins
+    according to a custom X range.
 
-def SetOverflowBin_Xrange(histo):
-    nbins = histo.GetNbinsX()
-    last_visible_bin = int(histo.GetXaxis().GetLast())
-    histo.SetBinContent(last_visible_bin, histo.Integral(last_visible_bin+1,histo.GetNbinsX()+1)); ## Overflow
-    #histo.SetBinContent(1, histo.GetBinContent(1)+ histo.GetBinContent(0));                ## Underflow
-    
-    
+    Parameters:
+        h     : ROOT.TH1
+        xmin  : lower x range (None = full range)
+        xmax  : upper x range (None = full range)
+    """
+
+    axis  = h.GetXaxis()
+    nbins = h.GetNbinsX()
+
+    # Determine visible bin range
+    if xmin is None:
+        first_bin = 1
+    else:
+        # first bin whose upper edge > xmin
+        first_bin = 1
+        for b in range(1, nbins+1):
+            if axis.GetBinUpEdge(b) > xmin:
+                first_bin = b
+                break
+
+    #Determine last visible bin
+    if xmax is None:
+        last_bin = nbins
+    else:
+        # last bin whose upper edge <= xmax
+        last_bin = 0
+        for b in range(1, nbins+1):
+            if axis.GetBinUpEdge(b) <= xmax:
+                last_bin = b
+        if last_bin == 0:
+            last_bin = 1  # fallback
+
+    # Protect boundaries
+    first_bin = max(1, first_bin)
+    last_bin  = min(nbins, last_bin)
+
+    # ----------------------------
+    # Merge UNDERFLOW + below xmin
+    # ----------------------------
+    if first_bin > 1:
+        total_content = h.GetBinContent(first_bin)
+        total_error2  = h.GetBinError(first_bin)**2
+
+        # include true underflow (bin 0)
+        for b in range(0, first_bin):
+            total_content += h.GetBinContent(b)
+            total_error2  += h.GetBinError(b)**2
+
+            h.SetBinContent(b, 0.0)
+            h.SetBinError(b, 0.0)
+
+        h.SetBinContent(first_bin, total_content)
+        h.SetBinError(first_bin, math.sqrt(total_error2))
+
+    # ----------------------------
+    # Merge OVERFLOW + above xmax
+    # ----------------------------
+    if last_bin < nbins:
+        total_content = h.GetBinContent(last_bin)
+        total_error2  = h.GetBinError(last_bin)**2
+
+        # include bins above xmax + true overflow
+        for b in range(last_bin + 1, nbins + 2):
+            total_content += h.GetBinContent(b)
+            total_error2  += h.GetBinError(b)**2
+
+            h.SetBinContent(b, 0.0)
+            h.SetBinError(b, 0.0)
+
+        h.SetBinContent(last_bin, total_content)
+        h.SetBinError(last_bin, math.sqrt(total_error2))
+
 
 def PadStyling(pad,rpad,pubstyle=False):
     L,R = 0.12,0.30
@@ -379,9 +445,21 @@ class Plotter():
         self.extraTextCaption=[]
 
         
-    def hist(self,histo,color='ROOT.kBlue',label='name',stack=False,fill=False,lwidth=2,ls=0.7,lstyle='ROOT.kSolid',legendStyle='lf',scale=1.0,density=False,isData=False):
+    def hist(self,
+             histo,
+             color='ROOT.kBlue',
+             label='name',
+             stack=False,
+             fill=False,
+             lwidth=2,
+             ls=0.7,
+             lstyle='ROOT.kSolid',
+             legendStyle='lf',
+             scale=1.0,
+             density=False,
+             isData=False):
+        
         h=histo.Clone(f"{histo.GetName()}")
-        SetOverflowBin(h)
         #styling
         h.SetLineWidth(lwidth)
         if stack:h.SetLineWidth(0)
@@ -404,7 +482,18 @@ class Plotter():
             
         self.histogram.append([label,stack,isData,h])
         
-    def Draw(self,logY=True,logX=False,truncate_xrange=False,rebin=1,unc_fstyle=1003,unc_fcolor=ROOT.kGray,extraTextOffset=0.08,sigLegStyle="lf",sortLegend=True):
+    def Draw(self,
+             logY=True,
+             logX=False,
+             ratio_logY=False,
+             truncate_xrange=False,
+             rebin=1,
+             unc_fstyle=1003,
+             unc_fcolor=ROOT.kGray,
+             extraTextOffset=0.08,
+             sigLegStyle="lf",
+             sortLegend=True,
+             showStat=False):
         
         if self.debug:
             print("debugging at the start of Draw")
@@ -420,7 +509,13 @@ class Plotter():
         if logY: self.mainPad.SetLogy(1)
         if logX: self.mainPad.SetLogx(1)
         if logX: self.ratioPad.SetLogx(1)
-        
+        if ratio_logY:self.ratioPad.SetLogy(1)
+
+        ##SetOverflow and underflow here before manipulating histograms (custom X range supported!)
+        for item in self.histogram:
+            h = item[-1]
+            merge_underflow_overflow_in_range(h, xmin = self.xrange[0], xmax = self.xrange[1])
+            
         ##truncate-hist if subrange of X-axis is chosen
         if truncate_xrange:
             truncated_histogram=[]
@@ -517,7 +612,7 @@ class Plotter():
 
         if(sortLegend):stack_legend=sorted(stack_legend,key=lambda x:x[-1].Integral(),reverse=True)
         if(sortLegend):signal_legend=sorted(signal_legend,key=lambda x:x[-1].Integral(),reverse=True)
-        if(self.pubStyle):
+        if(self.pubStyle and not showStat):
             if self.h_data!=None:
                 self.mainleg.AddEntry(self.h_data,f"{label}",'ep')
             for item in stack_legend:
@@ -539,7 +634,7 @@ class Plotter():
                 self.mainleg.AddEntry(histo,f"{label} [{histo.Integral():.3e}]",'f')
             for item in signal_legend:
                 label,histo=item[0],item[-1]
-                print(f"{label}")
+                #print(f"{label}")
                 self.mainleg.AddEntry(histo,f"{label} [{histo.Integral():.3e}]",sigLegStyle)
 
             if self.h_err:self.mainleg.AddEntry(self.h_err,"Uncertainty","f")
@@ -564,7 +659,6 @@ class Plotter():
             StackStyle(h_signal,self.ylabel)
             h_signal.GetXaxis().SetRangeUser(self.xrange[0],self.xrange[1])
             h_signal.GetYaxis().SetRangeUser(self.yrange[0],self.yrange[1])
-            SetOverflowBin_Xrange(h_signal)
             if(index==0 and self.h_stack==None):
                 h_signal.Draw("HIST")
             else:
@@ -574,7 +668,6 @@ class Plotter():
             self.h_data.SetBinErrorOption(ROOT.TH1.EBinErrorOpt.kPoisson)
             self.h_data.GetXaxis().SetRangeUser(self.xrange[0],self.xrange[1])
             self.h_data.GetYaxis().SetRangeUser(self.yrange[0],self.yrange[1])
-            SetOverflowBin_Xrange(self.h_data)
             self.h_data.Draw("E1X0 SAME")
 
         ##debug

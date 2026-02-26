@@ -29,8 +29,11 @@ def get_histograms(filename,samplename,histoname):
     return histo.Clone()
 
 ## prepare data for plotting
-def preprocess_info(yaml_data,variable_name):
+def preprocess_info(yaml_data,hist_config,region_config):
     histogramdir = yaml_data["general"]["input_path_histograms"]
+    histo_name   = os.path.join(hist_config["root_file_folder"],hist_config["name"])
+    region_name  = region_config["name"]
+    
     plotdict=defaultdict(dict)
     for item in yaml_data["samples"]:
         processname = item["name"]
@@ -43,6 +46,12 @@ def preprocess_info(yaml_data,variable_name):
             stack_opt  = item["stack"]
             isData_opt = item["isData"]
             legend_name= item["legend_name"]
+            region_from_sample=item.get("region")
+            ## override region extension from samples block
+            if region_from_sample is None:
+                variable_name = f"{histo_name}_{region_name}"
+            else:
+                variable_name = f"{histo_name}_{region_from_sample}"
             histo = get_histograms(f"{histogramdir}{filepath}",processname,variable_name)
             plotdict[f"{processname}"]=[filepath,color_opt,fill_opt,stack_opt,isData_opt,legend_name,processname,histo.Clone()]
 
@@ -67,7 +76,7 @@ def get_significance_hist(h_sig,h_bkg):
     return h_sb
 
 ## draw histograms
-def make_plot(plotdict,yaml_data,region_config,plot_config):
+def make_plot(plotdict,yaml_data,plot_config,region_config):
     plt = plot.Plotter()
     plt.setExperiment(yaml_data["general"]["experiment"])
     plt.setExtraText(yaml_data["general"]["extratext"])
@@ -107,11 +116,13 @@ def make_plot(plotdict,yaml_data,region_config,plot_config):
         
     plt.Draw(
         logY=plot_config["logy"],
+        ratio_logY=plot_config["ratio_logy"],
         rebin=plot_config["rebin"],
         unc_fstyle=plot_config["unc_fstyle"],
         unc_fcolor=eval(plot_config["unc_fcolor"]),
         extraTextOffset=plot_config["extraTextOffset"],
-        sortLegend=plot_config["sortLegend"]
+        sortLegend=plot_config["sortLegend"],
+        showStat = plot_config["showStat"]
     )
 
     ##plot significance
@@ -139,10 +150,11 @@ def make_plot(plotdict,yaml_data,region_config,plot_config):
 
 def argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config"                   ,help="configuration file for plotting")
-    parser.add_argument("--inputdir" ,default = None , help="input path of the directory containing files")
-    parser.add_argument("--samples"  ,default = None , help="string separated samples list")
-    parser.add_argument("--test"     ,default = False,help="test the script for a few plots")
+    parser.add_argument("--config"                          , help="configuration file for plotting")
+    parser.add_argument("--inputdir" ,default = None        , help="input path of the directory containing files")
+    parser.add_argument("--samples"  ,default = None        , help="string separated samples list")
+    parser.add_argument("--test"     ,action = "store_true", help="test the script for a few plots")
+    parser.add_argument("--stack"    ,action = "store_true" , help="enable stack plot settings")
     args = parser.parse_args()
     return args
 
@@ -165,6 +177,15 @@ if __name__=="__main__":
 
     print()
     print("############ samples to run: ",yaml_data["samples_to_run"])
+    
+    if args.stack:
+        yaml_data["general"]["output_subfolder"]="stack-plot"
+        yaml_data["general"]["plot_ratio_significance"]=False
+        yaml_data["plot_common"]["yrange"]=[0.0005,100000000000]
+        yaml_data["plot_common"]["ratio_logy"]=False
+        yaml_data["plot_common"]["ratio_ylabel"]="Obs/Exp"
+        yaml_data["plot_common"]["density"]=False
+        
         
     ##create output folder
     input_folder_name = yaml_data["general"]["input_path_histograms"].split("/")[-2]
@@ -184,11 +205,26 @@ if __name__=="__main__":
         print(f"############ plotting for region : {region_config['name']} {region_config['extra_text']}")
         for histogram_config in yaml_data["variable"]:
             print("############ fetching histogram : ",histogram_config["name"])
-            histoname=os.path.join(histogram_config["root_file_folder"],histogram_config["name"])
-            plotdict=preprocess_info(yaml_data,histoname+"_"+region_config["name"])
+            plotdict=preprocess_info(yaml_data,histogram_config,region_config)
             #print(plotdict)
-            make_plot(plotdict,yaml_data,region_config,histogram_config)
+            if args.stack:
+                histogram_config["yrange"]=yaml_data["plot_common"]["yrange"]
+                histogram_config["ratio_ylabel"]=yaml_data["plot_common"]["ratio_ylabel"]
+                histogram_config["ratio_logy"]=yaml_data["plot_common"]["ratio_logy"]
+                histogram_config["density"]=yaml_data["plot_common"]["density"]
+
+            #draw histograms
+            make_plot(plotdict,yaml_data,histogram_config,region_config)
             if args.test: break
             
     print("ALL DONE!")
     print("SUCCESS!")
+
+    ############################ OPEN THE PLOTS IN A LOCAL BROWSER #######################################
+    #make-html
+    html_folder=yaml_data["general"]["output_path_plots"]+"/"+input_folder_name+"/"
+    os.system(f"python3 generate_plotviewer_html.py {html_folder}")
+    print("✅ HTML file generated successfully.")
+    confirm = input("Open HTML page now? (y/n): ").strip().lower()
+    if confirm in ["y", "yes"]:
+        os.system(f"firefox {html_folder}/index.html")
